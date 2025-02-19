@@ -19,7 +19,7 @@
 /* 
 Please specify the group members here
 
-# Student #1: 
+# Student #1: Jacob Schuetter
 # Student #2:
 # Student #3: 
 
@@ -94,6 +94,52 @@ void run_client() {
      * Create sockets and epoll instances for client threads
      * and connect these sockets of client threads to the server
      */
+    const int MAX_RETRIES = 5; //Max number of times to retry creating epoll instance, socket, or connecting socket
+    //Store host info in server_addr
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = server_port;
+    memset(&server_addr.sin_port.s_addr, server_ip, strlen(server_ip)+1); //Make sure this works!
+
+    //Create epoll instance, socket & socket connection for each thread
+    for (int i = 0; i < num_client_threads; i++) {
+        bool retryEpoll = true;
+        bool retrySocket = true;
+        int retryCount = 0;
+        //Create epoll instance
+        while ((thread_data[i].epoll_fd = epoll_create1()) >= 0 
+            && retryCount++ <= MAX_RETRIES) {} //Does this work? Need to make sure retryCount actually gets incremented
+        if (retryCount > MAX_RETRIES) {
+            perror("Max epoll retries exceeded");
+            exit(-1);
+        }
+        retryCount = 0;
+
+        //Create socket
+        while ((thread_data[i].socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) >= 0 
+            && retryCount++ <= MAX_RETRIES) {}
+
+        //Old form
+        // while (retrySocket && retryCount <= MAX_RETRIES) {
+        //     thread_data[i].socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        //     if (thread_data[i].socket_fd >= 0) retrySocket = false; //Break loop if socket creation succeeded
+        //     else retryCount++;
+        // }
+        if (retryCount > MAX_RETRIES) {
+            perror("Max socket retries exceeded");
+            exit(-1);
+        }
+        retryCount = 0;
+
+        //Connect sockets
+        while ((connect(thread_data[i].socket_fd, &server_addr, sizeof(server_addr))) >= 0 
+            && retryCount++ <= MAX_RETRIES) {}
+        if (retryCount > MAX_RETRIES) {
+            perror("Max socket connect retries exceeded");
+            exit(-1);
+        }
+    
+
+    }
     
     // Hint: use thread_data to save the created socket and epoll instance for each thread
     // You will pass the thread_data to pthread_create() as below
@@ -104,6 +150,7 @@ void run_client() {
     /* TODO:
      * Wait for client threads to complete and aggregate metrics of all client threads
      */
+    
 
     printf("Average RTT: %lld us\n", total_rtt / total_messages);
     printf("Total Request Rate: %f messages/s\n", total_request_rate);
