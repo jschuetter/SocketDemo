@@ -96,17 +96,18 @@ void run_client() {
      */
     const int MAX_RETRIES = 5; //Max number of times to retry creating epoll instance, socket, or connecting socket
     //Store host info in server_addr
+    memset(&server_addr, 0, sizeof(server_addr)); //Clear bits before writing
     server_addr.sin_family = AF_INET;
+    memcpy(&server_addr.sin_addr.s_addr, server_ip, strlen(server_ip)+1); //Make sure this works!
     server_addr.sin_port = server_port;
-    memset(&server_addr.sin_port.s_addr, server_ip, strlen(server_ip)+1); //Make sure this works!
 
     //Create epoll instance, socket & socket connection for each thread
     for (int i = 0; i < num_client_threads; i++) {
-        bool retryEpoll = true;
-        bool retrySocket = true;
+        // int retryEpoll = 1;
+        // int retrySocket = 1;
         int retryCount = 0;
         //Create epoll instance
-        while ((thread_data[i].epoll_fd = epoll_create1()) >= 0 
+        while ((thread_data[i].epoll_fd = epoll_create1(0)) < 0 
             && retryCount++ <= MAX_RETRIES) {} //Does this work? Need to make sure retryCount actually gets incremented
         if (retryCount > MAX_RETRIES) {
             perror("Max epoll retries exceeded");
@@ -115,7 +116,7 @@ void run_client() {
         retryCount = 0;
 
         //Create socket
-        while ((thread_data[i].socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) >= 0 
+        while ((thread_data[i].socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0 
             && retryCount++ <= MAX_RETRIES) {}
 
         //Old form
@@ -131,7 +132,7 @@ void run_client() {
         retryCount = 0;
 
         //Connect sockets
-        while ((connect(thread_data[i].socket_fd, &server_addr, sizeof(server_addr))) >= 0 
+        while ((connect(thread_data[i].socket_fd, (struct sockaddr_in *) &server_addr, sizeof(server_addr))) < 0 
             && retryCount++ <= MAX_RETRIES) {}
         if (retryCount > MAX_RETRIES) {
             perror("Max socket connect retries exceeded");
@@ -150,7 +151,15 @@ void run_client() {
     /* TODO:
      * Wait for client threads to complete and aggregate metrics of all client threads
      */
-    
+    long long total_rtt = 0;
+    long total_messages = 0;
+    float total_request_rate = 0;
+    for (int i = 0; i < num_client_threads; i++) {
+        if (pthread_join(threads[i], NULL) != 0) perror("Error when joining thread"); exit (-1); //Currently ignores retval of individual threads (2nd arg is NULL)
+        total_rtt += thread_data[i].total_rtt;
+        total_messages += thread_data[i].total_messages;
+        total_request_rate += thread_data[i].request_rate;
+    }
 
     printf("Average RTT: %lld us\n", total_rtt / total_messages);
     printf("Total Request Rate: %f messages/s\n", total_request_rate);
