@@ -20,7 +20,7 @@
 Please specify the group members here
 
 # Student #1: Jacob Schuetter
-# Student #2:
+# Student #2: AJ Fluty
 # Student #3: 
 
 */
@@ -90,25 +90,25 @@ void run_client() {
     client_thread_data_t thread_data[num_client_threads];
     struct sockaddr_in server_addr;
 
-    /* TODO:
+    /* DONE:
      * Create sockets and epoll instances for client threads
      * and connect these sockets of client threads to the server
      */
     const int MAX_RETRIES = 5; //Max number of times to retry creating epoll instance, socket, or connecting socket
     //Store host info in server_addr
-    memset(&server_addr, 0, sizeof(server_addr)); //Clear bits before writing
     server_addr.sin_family = AF_INET;
-    memcpy(&server_addr.sin_addr.s_addr, server_ip, strlen(server_ip)+1); //Make sure this works!
+    server_addr.sin_addr.s_addr = inet_addr(server_ip);
     server_addr.sin_port = server_port;
 
     //Create epoll instance, socket & socket connection for each thread
     for (int i = 0; i < num_client_threads; i++) {
-        // int retryEpoll = 1;
-        // int retrySocket = 1;
         int retryCount = 0;
         //Create epoll instance
-        while ((thread_data[i].epoll_fd = epoll_create1(0)) < 0 
-            && retryCount++ <= MAX_RETRIES) {} //Does this work? Need to make sure retryCount actually gets incremented
+        int c = thread_data[i].epoll_fd = epoll_create1(0);
+        while (c < 0 && retryCount++ <= MAX_RETRIES) {
+            c = thread_data[i].epoll_fd = epoll_create1(0);
+            printf("Epoll instance %i failed. Retrying (%i remaining)\n", i, MAX_RETRIES-retryCount);
+        }
         if (retryCount > MAX_RETRIES) {
             perror("Max epoll retries exceeded");
             exit(-1);
@@ -116,15 +116,11 @@ void run_client() {
         retryCount = 0;
 
         //Create socket
-        while ((thread_data[i].socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0 
-            && retryCount++ <= MAX_RETRIES) {}
-
-        //Old form
-        // while (retrySocket && retryCount <= MAX_RETRIES) {
-        //     thread_data[i].socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        //     if (thread_data[i].socket_fd >= 0) retrySocket = false; //Break loop if socket creation succeeded
-        //     else retryCount++;
-        // }
+        int s = thread_data[i].socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        while (s < 0 && retryCount++ <= MAX_RETRIES) {
+            s = thread_data[i].socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            printf("Socket init %i failed. Retrying (%i remaining)\n", i, MAX_RETRIES-retryCount);
+        }
         if (retryCount > MAX_RETRIES) {
             perror("Max socket retries exceeded");
             exit(-1);
@@ -132,14 +128,15 @@ void run_client() {
         retryCount = 0;
 
         //Connect sockets
-        while ((connect(thread_data[i].socket_fd, (struct sockaddr_in *) &server_addr, sizeof(server_addr))) < 0 
-            && retryCount++ <= MAX_RETRIES) {}
+       	int w = connect(thread_data[i].socket_fd, (struct sockaddr *) &server_addr, sizeof(server_addr));
+	    while (w < 0 && retryCount++ <= MAX_RETRIES) {
+		    w = connect(thread_data[i].socket_fd, (struct sockaddr *) &server_addr, sizeof(server_addr));
+            printf("Socket connection %i failed. Retrying (%i remaining)\n", i, MAX_RETRIES-retryCount);
+        }
         if (retryCount > MAX_RETRIES) {
             perror("Max socket connect retries exceeded");
             exit(-1);
         }
-    
-
     }
     
     // Hint: use thread_data to save the created socket and epoll instance for each thread
@@ -148,17 +145,25 @@ void run_client() {
         pthread_create(&threads[i], NULL, client_thread_func, &thread_data[i]);
     }
 
-    /* TODO:
+    /* DONE:
      * Wait for client threads to complete and aggregate metrics of all client threads
      */
     long long total_rtt = 0;
     long total_messages = 0;
     float total_request_rate = 0;
     for (int i = 0; i < num_client_threads; i++) {
-        if (pthread_join(threads[i], NULL) != 0) perror("Error when joining thread"); exit (-1); //Currently ignores retval of individual threads (2nd arg is NULL)
+        int pj = pthread_join(threads[i], NULL); //Ignores retval of individual threads (2nd arg is NULL)
+        if (pj != 0) {
+             perror("Error when joining thread"); 
+             exit (-1); 
+        }
         total_rtt += thread_data[i].total_rtt;
         total_messages += thread_data[i].total_messages;
         total_request_rate += thread_data[i].request_rate;
+
+        //Close socket & epoll instance
+        close(thread_data[i].socket_fd);
+        close(thread_data[i].epoll_fd);
     }
 
     printf("Average RTT: %lld us\n", total_rtt / total_messages);
