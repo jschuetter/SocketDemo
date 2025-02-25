@@ -16,6 +16,13 @@
 # SPDX-License-Identifier: Apache-2.0
 */
 
+/*
+References used: 
+- Lecture 4 slides: socket programming basics
+- Linux documentation (man7.org)
+- "How to use epoll?" (https://rg4.net/archives/375.html)
+*/
+
 /* 
 Please specify the group members here
 
