@@ -171,18 +171,101 @@ void run_client() {
 }
 
 void run_server() {
+    int QUEUE_SIZE = 10; //Define server listen queue size
+    char buf[MESSAGE_SIZE];
 
-    /* TODO:
+    /* DONE:
      * Server creates listening socket and epoll instance.
      * Server registers the listening socket to epoll
      */
+    //Create server IP addr structure
+    struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    server_addr.sin_port = server_port;
 
-    /* Server's run-to-completion event loop */
+    //Create listen socket
+    int on = 1;
+    int listen_socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    setsockopt(listen_socket_fd, SOL_SOCKET, SO_REUSEADDR, (char *) &on, sizeof(on)); //Set options for listen socket to allow reusing local port number
+    int b, l; //Variables for ret values of bind & listen calls
+    if (listen_socket_fd < 0) {
+        perror("Listen socket creation failed");
+        exit(-1);
+    }
+    b = bind(listen_socket_fd, (struct sockaddr *) &server_addr, sizeof(server_addr));
+    if (b < 0) {
+        perror("Listen socket bind failed"); 
+        exit(-1);
+    }
+    l = listen(listen_socket_fd, QUEUE_SIZE);
+    if (l < 0) {
+        perror("Listen socket listen failed");
+        exit(-1);
+    }
+
+    //Initialize epoll
+    int server_epoll_fd = epoll_create1(0);
+
+    //Add listen socket to epoll
+    struct epoll_event listener_event;
+    listener_event.data.fd = listen_socket_fd;
+    listener_event.events = EPOLLIN;
+    int c = epoll_ctl(server_epoll_fd, EPOLL_CTL_ADD, listen_socket_fd, (struct epoll_event *) &listener_event);
+    if (c < 0) {
+            perror("Failed to add listener to epoll");
+            exit(-1);
+    }
+
+    /* Server's run-to-completion listener_event loop */
+    int accept_socket_fd;
     while (1) {
-        /* TODO:
+        /* DONE:
          * Server uses epoll to handle connection establishment with clients
          * or receive the message from clients and echo the message back
          */
+        //Wait for epoll listener_event
+        struct epoll_event events[MAX_EVENTS]; //Store events
+        int numEvents = epoll_wait(server_epoll_fd, events, MAX_EVENTS, 0);
+        //Handle epoll events sequentially
+        for (int i = 0; i < numEvents; i++) {
+            //Check for errors in epoll events
+            if ((events[i].events & EPOLLERR) ){
+                //Close FDs when closed (or error occurs)
+                // perror("EPOLLERR on fd");
+                close(events[i].data.fd);
+                continue;
+            }
+            else if (events[i].data.fd == listen_socket_fd) {
+                //Notification on listen socket => establish new connection
+                accept_socket_fd = accept(listen_socket_fd, NULL, NULL);
+                if (accept_socket_fd < 0) {
+                    perror("Accept failed");
+                    continue;
+                }
+                //Add to epoll
+                //Define epoll event for data on new connection
+                events[accept_socket_fd].data.fd = accept_socket_fd;
+                events[accept_socket_fd].events = EPOLLIN;
+                int c = epoll_ctl(server_epoll_fd, EPOLL_CTL_ADD, accept_socket_fd, (struct epoll_event *) &events[accept_socket_fd]);
+                if (c < 0) {
+                    perror("Failed to add conn to epoll");
+                    exit(-1);
+                }
+            }
+            // else if (events[i].events & EPOLLIN && events[i].data.fd != 0) { //Data incoming on other connection
+            else if (events[i].events & EPOLLIN) { //Data incoming on other connection
+                if (read(events[i].data.fd, buf, MESSAGE_SIZE) < 0) { //Read message
+                    perror("Read error");
+                    exit(-1);
+                } 
+                if (write(events[i].data.fd, buf, MESSAGE_SIZE) < 0) { //Echo message back
+                    perror("Write error");
+                    exit(-1);
+                }
+            }
+        }
     }
 }
 
