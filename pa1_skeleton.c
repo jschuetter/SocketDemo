@@ -72,26 +72,14 @@ void *client_thread_func(void *arg) {
     char recv_buf[MESSAGE_SIZE];
     struct timeval start, end;
 
-    // Hint 1: register the "connected" client_thread's socket in the its epoll instance
-    // Hint 2: use gettimeofday() and "struct timeval start, end" to record timestamp, which can be used to calculated RTT.
-
-    /* TODO:
-     * It sends messages to the server, waits for a response using epoll,
-     * and measures the round-trip time (RTT) of this request-response.
-     */
- 
-    /* TODO:
-     * The function exits after sending and receiving a predefined number of messages (num_requests). 
-     * It calculates the request rate based on total messages and RTT
-     */
-      event.data.fd = data->socket_fd;
-     event.events = EPOLLIN;
-     if (epoll_ctl(data->epoll_fd, EPOLL_CTL_ADD, data->socket_fd, &event) < 0) {
+    event.data.fd = data->socket_fd;
+    event.events = EPOLLIN;
+    if (epoll_ctl(data->epoll_fd, EPOLL_CTL_ADD, data->socket_fd, &event) < 0) {
         perror("Failed to add socket to epoll");
         return NULL;
-     }
+    }
 
-     for (int i = 0; i < num_requests; i++) {
+    for (int i = 0; i < num_requests; i++) {
         gettimeofday(&start, NULL); // record start time
 
         // send message to server
@@ -119,9 +107,9 @@ void *client_thread_func(void *arg) {
         long long rtt = (end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec);
         data->total_rtt += rtt;
         data->total_messages++;
-     }
-     // compute request rate
-     data->request_rate = (float)data->total_messages / (data->total_rtt / 1000000.0);
+    }
+    // compute request rate
+    data->request_rate = (float)data->total_messages / (data->total_rtt / 1000000.0);
 	
     return NULL;
 }
@@ -135,10 +123,6 @@ void run_client() {
     client_thread_data_t thread_data[num_client_threads];
     struct sockaddr_in server_addr;
 
-    /* DONE:
-     * Create sockets and epoll instances for client threads
-     * and connect these sockets of client threads to the server
-     */
     const int MAX_RETRIES = 5; //Max number of times to retry creating epoll instance, socket, or connecting socket
     //Store host info in server_addr
     server_addr.sin_family = AF_INET;
@@ -190,9 +174,7 @@ void run_client() {
         pthread_create(&threads[i], NULL, client_thread_func, &thread_data[i]);
     }
 
-    /* DONE:
-     * Wait for client threads to complete and aggregate metrics of all client threads
-     */
+    //Aggregate request data
     long long total_rtt = 0;
     long total_messages = 0;
     float total_request_rate = 0;
@@ -219,10 +201,6 @@ void run_server() {
     int QUEUE_SIZE = 10; //Define server listen queue size
     char buf[MESSAGE_SIZE];
 
-    /* DONE:
-     * Server creates listening socket and epoll instance.
-     * Server registers the listening socket to epoll
-     */
     //Create server IP addr structure
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
@@ -266,10 +244,6 @@ void run_server() {
     /* Server's run-to-completion listener_event loop */
     int accept_socket_fd;
     while (1) {
-        /* DONE:
-         * Server uses epoll to handle connection establishment with clients
-         * or receive the message from clients and echo the message back
-         */
         //Wait for epoll listener_event
         struct epoll_event events[MAX_EVENTS]; //Store events
         int numEvents = epoll_wait(server_epoll_fd, events, MAX_EVENTS, 0);
@@ -299,7 +273,6 @@ void run_server() {
                     exit(-1);
                 }
             }
-            // else if (events[i].events & EPOLLIN && events[i].data.fd != 0) { //Data incoming on other connection
             else if (events[i].events & EPOLLIN) { //Data incoming on other connection
                 if (read(events[i].data.fd, buf, MESSAGE_SIZE) < 0) { //Read message
                     perror("Read error");
