@@ -84,7 +84,45 @@ void *client_thread_func(void *arg) {
      * The function exits after sending and receiving a predefined number of messages (num_requests). 
      * It calculates the request rate based on total messages and RTT
      */
+      event.data.fd = data->socket_fd;
+     event.events = EPOLLIN;
+     if (epoll_ctl(data->epoll_fd, EPOLL_CTL_ADD, data->socket_fd, &event) < 0) {
+        perror("Failed to add socket to epoll");
+        return NULL;
+     }
 
+     for (int i = 0; i < num_requests; i++) {
+        gettimeofday(&start, NULL); // record start time
+
+        // send message to server
+        if (write(data->socket_fd, send_buf, MESSAGE_SIZE) < 0) {
+            perror("Write failed");
+            continue;
+        }
+
+        // wait for response
+        int event_count = epoll_wait(data->epoll_fd, events, MAX_EVENTS, -1);
+        if (event_count < 0) {
+            perror("Epoll wait failed");
+            continue;
+        }
+
+        // read response from server
+        if (read(data->socket_fd, recv_buf, MESSAGE_SIZE) < 0) {
+            perror("Read failed");
+            continue;
+        }
+
+        gettimeofday(&end, NULL); // record end time
+
+        // compute RTT
+        long long rtt = (end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec);
+        data->total_rtt += rtt;
+        data->total_messages++;
+     }
+     // compute request rate
+     data->request_rate = (float)data->total_messages / (data->total_rtt / 1000000.0);
+	
     return NULL;
 }
 
