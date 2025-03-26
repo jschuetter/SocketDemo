@@ -145,9 +145,9 @@ void run_client() {
         retryCount = 0;
 
         //Create socket
-        int s = thread_data[i].socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        int s = thread_data[i].socket_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         while (s < 0 && retryCount++ <= MAX_RETRIES) {
-            s = thread_data[i].socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            s = thread_data[i].socket_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
             printf("Socket init %i failed. Retrying (%i remaining)\n", i, MAX_RETRIES-retryCount);
         }
         if (retryCount > MAX_RETRIES) {
@@ -210,7 +210,7 @@ void run_server() {
 
     //Create listen socket
     int on = 1;
-    int listen_socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    int listen_socket_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     setsockopt(listen_socket_fd, SOL_SOCKET, SO_REUSEADDR, (char *) &on, sizeof(on)); //Set options for listen socket to allow reusing local port number
     int b, l; //Variables for ret values of bind & listen calls
     if (listen_socket_fd < 0) {
