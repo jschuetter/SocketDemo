@@ -68,8 +68,8 @@ typedef struct
 } client_thread_data_t;
 
 // Dataframe structure
-typedef unsigned int seq_nr; //Sequence or ACK numbers
-typedef struct 
+typedef unsigned int seq_nr; // Sequence or ACK numbers
+typedef struct
 {
     pthread_t sender_id; // Thread ID of sender thread
     seq_nr seq;
@@ -80,20 +80,21 @@ typedef struct
 /*
  * This function runs in a separate client thread to handle communication with the server
  */
-void* client_thread_func(void* arg) {
-    client_thread_data_t* data = (client_thread_data_t*)arg;
+void *client_thread_func(void *arg)
+{
+    client_thread_data_t *data = (client_thread_data_t *)arg;
     // char send_buf[MESSAGE_SIZE] = "ABCDEFGHIJKMLNOP";
     // char recv_buf[MESSAGE_SIZE];
     struct timeval start, end;
     struct timeval timeout;
 
-    //Build dataframe
+    // Build dataframe
     frame send_frame, rcv_frame;
     pthread_t tid = pthread_self();
     char msg[MESSAGE_SIZE] = "ABCDEFGHIJKLMNOP";
     strcpy(send_frame.payload, msg);
 
-    //Initialize sequence number count at 0
+    // Initialize sequence number count at 0
     seq_nr next_sn = 0;
 
     data->tx_cnt = 0;
@@ -101,14 +102,16 @@ void* client_thread_func(void* arg) {
     data->total_rtt = 0;
     data->total_messages = 0;
 
-    for (int i = 0; i < num_requests; i++) {
+    for (int i = 0; i < num_requests; i++)
+    {
         // memset(recv_buf, '\0', sizeof(recv_buf));
         gettimeofday(&start, NULL);
 
         send_frame.sender_id = tid;
         send_frame.seq = next_sn;
 
-        if (send(data->socket_fd, (struct frame *) &send_frame, MESSAGE_SIZE, 0) < 0) {
+        if (send(data->socket_fd, (struct frame *)&send_frame, MESSAGE_SIZE, 0) < 0)
+        {
             perror("Write failed");
             i--;
             continue;
@@ -124,27 +127,33 @@ void* client_thread_func(void* arg) {
 
         // Attempt to receive ACK
         int ready = select(data->socket_fd + 1, &read_fds, NULL, NULL, &timeout);
-            // If socket is ready to read, try to get ACK frame
-            // Sequence number gets compared on next call of while() line below
-            if (ready > 0 && FD_ISSET(data->socket_fd, &read_fds)) {
-                // Store ACK from server in same `send_frame` struct
-                if (recv(data->socket_fd, (struct frame *) &send_frame, MESSAGE_SIZE, 0) < 0) {
-                    perror("ACK failed");
-                }
-            } else {
-                // printf("Timeout (seq_nr %d)\n", next_sn);
+        // If socket is ready to read, try to get ACK frame
+        // Sequence number gets compared on next call of while() line below
+        if (ready > 0 && FD_ISSET(data->socket_fd, &read_fds))
+        {
+            // Store ACK from server in same `send_frame` struct
+            if (recv(data->socket_fd, (struct frame *)&send_frame, MESSAGE_SIZE, 0) < 0)
+            {
+                perror("ACK failed");
             }
+        }
+        else
+        {
+            // printf("Timeout (seq_nr %d)\n", next_sn);
+        }
 
         // Retransmission loop
         //   While returned ACK number does not match current sequence number
         //   or sender_ID on ACK does not match thread ID, retransmit
         //   (not incrementing tx_cnt)
-        while (send_frame.ack != next_sn || send_frame.sender_id != tid) {
+        while (send_frame.ack != next_sn || send_frame.sender_id != tid)
+        {
             // Retransmit
             send_frame.sender_id = tid;
             send_frame.seq = next_sn;
 
-            if (send(data->socket_fd, (struct frame *) &send_frame, MESSAGE_SIZE, 0) < 0) {
+            if (send(data->socket_fd, (struct frame *)&send_frame, MESSAGE_SIZE, 0) < 0)
+            {
                 perror("Write failed");
                 continue;
             }
@@ -153,17 +162,21 @@ void* client_thread_func(void* arg) {
             FD_ZERO(&read_fds);
             FD_SET(data->socket_fd, &read_fds);
             int ready = select(data->socket_fd + 1, &read_fds, NULL, NULL, &timeout);
-            if (ready > 0 && FD_ISSET(data->socket_fd, &read_fds)) {
-                if (recv(data->socket_fd, (struct frame *) &send_frame, MESSAGE_SIZE, 0) < 0) {
+            if (ready > 0 && FD_ISSET(data->socket_fd, &read_fds))
+            {
+                if (recv(data->socket_fd, (struct frame *)&send_frame, MESSAGE_SIZE, 0) < 0)
+                {
                     perror("ACK failed");
                 }
-            } else {
+            }
+            else
+            {
                 // printf("Timeout (seq_nr %d)\n", next_sn);
             }
         }
         // After successful ACK:
         data->rx_cnt++; // Increment packets received count
-        next_sn++; // Increment sequence number
+        next_sn++;      // Increment sequence number
 
         gettimeofday(&end, NULL); // record end time
 
@@ -303,18 +316,18 @@ void run_server()
     while (1)
     {
         // Receive incoming packet
-        int r = recvfrom(listen_socket_fd, (struct frame *) &recv_frame, MESSAGE_SIZE, 0, (struct sockaddr *)&client_addr, &client_addr_len);
+        int r = recvfrom(listen_socket_fd, (struct frame *)&recv_frame, MESSAGE_SIZE, 0, (struct sockaddr *)&client_addr, &client_addr_len);
         if (r < 0)
         {
             perror("Error receiving packet");
             break;
         }
 
-        //Update ack number
+        // Update ack number
         recv_frame.ack = recv_frame.seq;
 
         // Echo packet back
-        int s = sendto(listen_socket_fd, (struct frame *) &recv_frame, MESSAGE_SIZE, 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
+        int s = sendto(listen_socket_fd, (struct frame *)&recv_frame, MESSAGE_SIZE, 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
         if (s < 0)
         {
             perror("Error echoing packet");
