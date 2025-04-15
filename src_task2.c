@@ -137,10 +137,6 @@ void *client_thread_func(void *arg)
                 perror("ACK failed");
             }
         }
-        else
-        {
-            // printf("Timeout (seq_nr %d)\n", next_sn);
-        }
 
         // Retransmission loop
         //   While returned ACK number does not match current sequence number
@@ -168,10 +164,6 @@ void *client_thread_func(void *arg)
                 {
                     perror("ACK failed");
                 }
-            }
-            else
-            {
-                // printf("Timeout (seq_nr %d)\n", next_sn);
             }
         }
         // After successful ACK:
