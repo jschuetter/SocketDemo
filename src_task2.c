@@ -45,6 +45,7 @@ Please specify the group members here
 #define MAX_EVENTS 64
 #define MESSAGE_SIZE 16
 #define DEFAULT_CLIENT_THREADS 4
+#define TIMEOUT_USEC 50000
 
 char *server_ip = "127.0.0.1";
 int server_port = 12345;
@@ -69,58 +70,72 @@ typedef struct
 /*
  * This function runs in a separate client thread to handle communication with the server
  */
-void *client_thread_func(void *arg)
-{
-    client_thread_data_t *data = (client_thread_data_t *)arg;
-    char send_buf[MESSAGE_SIZE] = "ABCDEFGHIJKMLNOP"; /* Send 16-Bytes message every time */
+void* client_thread_func(void* arg) {
+    client_thread_data_t* data = (client_thread_data_t*)arg;
+    char send_buf[MESSAGE_SIZE] = "ABCDEFGHIJKMLNOP";
     char recv_buf[MESSAGE_SIZE];
     struct timeval start, end;
+    struct timeval timeout;
 
-    // Initialize count values
     data->tx_cnt = 0;
     data->rx_cnt = 0;
     data->total_rtt = 0;
     data->total_messages = 0;
 
-    for (int i = 0; i < num_requests; i++)
-    {
-        // Clear ack buffer
+    int seq_num = 0;
+
+    for (int i = 0; i < num_requests; i++) {
         memset(recv_buf, '\0', sizeof(recv_buf));
+        gettimeofday(&start, NULL);
 
-        gettimeofday(&start, NULL); // record start time
+        // Add sequence number to message
+        memcpy(send_buf, &seq_num, sizeof(int));
 
-        // send message to server
-        if (send(data->socket_fd, send_buf, MESSAGE_SIZE, 0) < 0)
-        {
+        if (send(data->socket_fd, send_buf, MESSAGE_SIZE, 0) < 0) {
             perror("Write failed");
             continue;
         }
-        data->tx_cnt++; // Increment packets sent count
+        data->tx_cnt++;
 
-        // expect ACK from server
-        if (recv(data->socket_fd, recv_buf, MESSAGE_SIZE, 0) < 0)
-        {
-            perror("ACK failed");
-            continue;
+        // Set socket timeout for recv
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(data->socket_fd, &read_fds);
+        timeout.tv_sec = 0;
+        timeout.tv_usec = TIMEOUT_USEC;
+
+        int ready = select(data->socket_fd + 1, &read_fds, NULL, NULL, &timeout);
+        if (ready > 0 && FD_ISSET(data->socket_fd, &read_fds)) {
+            if (recv(data->socket_fd, recv_buf, MESSAGE_SIZE, 0) < 0) {
+                perror("ACK failed");
+                continue;
+            }
+            int received_seq;
+            memcpy(&received_seq, recv_buf, sizeof(int));
+
+            if (received_seq == seq_num) {
+                data->rx_cnt++;
+                gettimeofday(&end, NULL);
+                long long rtt = (end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec);
+                data->total_rtt += rtt;
+                data->total_messages++;
+                seq_num++;
+            }
+            else {
+                i--;
+            }
         }
-        data->rx_cnt++; // Increment packets received count
-
-        gettimeofday(&end, NULL); // record end time
-
-        // compute RTT
-        long long rtt = (end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec);
-        data->total_rtt += rtt;
-        data->total_messages++;
+        else {
+            // timeout or no response, retransmit
+            i--;
+        }
     }
 
-    // compute request rate
     data->request_rate = (float)data->total_messages / (data->total_rtt / 1000000.0);
-    // compute lost packet count
     data->lost_pkt_cnt = data->tx_cnt - data->rx_cnt;
 
     return NULL;
 }
-
 /*
  * This function orchestrates multiple client threads to send requests to a server,
  * collect performance data of each threads, and compute aggregated metrics of all threads.
