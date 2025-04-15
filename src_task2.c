@@ -131,6 +131,8 @@ void* client_thread_func(void* arg) {
                 if (recv(data->socket_fd, (struct frame *) &send_frame, MESSAGE_SIZE, 0) < 0) {
                     perror("ACK failed");
                 }
+            } else {
+                // printf("Timeout (seq_nr %d)\n", next_sn);
             }
 
         // Retransmission loop
@@ -148,11 +150,15 @@ void* client_thread_func(void* arg) {
             }
 
             // Receive ACK
+            FD_ZERO(&read_fds);
+            FD_SET(data->socket_fd, &read_fds);
             int ready = select(data->socket_fd + 1, &read_fds, NULL, NULL, &timeout);
             if (ready > 0 && FD_ISSET(data->socket_fd, &read_fds)) {
                 if (recv(data->socket_fd, (struct frame *) &send_frame, MESSAGE_SIZE, 0) < 0) {
                     perror("ACK failed");
                 }
+            } else {
+                // printf("Timeout (seq_nr %d)\n", next_sn);
             }
         }
         // After successful ACK:
@@ -303,6 +309,9 @@ void run_server()
             perror("Error receiving packet");
             break;
         }
+
+        //Update ack number
+        recv_frame.ack = recv_frame.seq;
 
         // Echo packet back
         int s = sendto(listen_socket_fd, (struct frame *) &recv_frame, MESSAGE_SIZE, 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
