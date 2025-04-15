@@ -104,7 +104,6 @@ void *client_thread_func(void *arg)
 
     for (int i = 0; i < num_requests; i++)
     {
-        // memset(recv_buf, '\0', sizeof(recv_buf));
         gettimeofday(&start, NULL);
 
         send_frame.sender_id = tid;
