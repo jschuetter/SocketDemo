@@ -67,32 +67,50 @@ typedef struct
     long lost_pkt_cnt;   /* Number of packets lost (equivalent to tx_cnt - rx_cnt) */
 } client_thread_data_t;
 
+// Dataframe structure
+typedef unsigned int seq_nr; //Sequence or ACK numbers
+typedef struct 
+{
+    pthread_t sender_id; // Thread ID of sender thread
+    seq_nr seq;
+    seq_nr ack;
+    char payload[MESSAGE_SIZE];
+} frame;
+
 /*
  * This function runs in a separate client thread to handle communication with the server
  */
 void* client_thread_func(void* arg) {
     client_thread_data_t* data = (client_thread_data_t*)arg;
-    char send_buf[MESSAGE_SIZE] = "ABCDEFGHIJKMLNOP";
-    char recv_buf[MESSAGE_SIZE];
+    // char send_buf[MESSAGE_SIZE] = "ABCDEFGHIJKMLNOP";
+    // char recv_buf[MESSAGE_SIZE];
     struct timeval start, end;
     struct timeval timeout;
+
+    //Build dataframe
+    frame send_frame, rcv_frame;
+    pthread_t tid = pthread_self();
+    char msg[MESSAGE_SIZE] = "ABCDEFGHIJKLMNOP";
+    strcpy(send_frame.payload, msg);
+
+    //Initialize sequence number count at 0
+    seq_nr next_sn = 0;
 
     data->tx_cnt = 0;
     data->rx_cnt = 0;
     data->total_rtt = 0;
     data->total_messages = 0;
 
-    int seq_num = 0;
-
     for (int i = 0; i < num_requests; i++) {
-        memset(recv_buf, '\0', sizeof(recv_buf));
+        // memset(recv_buf, '\0', sizeof(recv_buf));
         gettimeofday(&start, NULL);
 
-        // Add sequence number to message
-        memcpy(send_buf, &seq_num, sizeof(int));
+        send_frame.sender_id = tid;
+        send_frame.seq = next_sn;
 
-        if (send(data->socket_fd, send_buf, MESSAGE_SIZE, 0) < 0) {
+        if (send(data->socket_fd, (struct frame *) &send_frame, MESSAGE_SIZE, 0) < 0) {
             perror("Write failed");
+            i--;
             continue;
         }
         data->tx_cnt++;
@@ -104,31 +122,49 @@ void* client_thread_func(void* arg) {
         timeout.tv_sec = 0;
         timeout.tv_usec = TIMEOUT_USEC;
 
+        // Attempt to receive ACK
         int ready = select(data->socket_fd + 1, &read_fds, NULL, NULL, &timeout);
-        if (ready > 0 && FD_ISSET(data->socket_fd, &read_fds)) {
-            if (recv(data->socket_fd, recv_buf, MESSAGE_SIZE, 0) < 0) {
-                perror("ACK failed");
+            // If socket is ready to read, try to get ACK frame
+            // Sequence number gets compared on next call of while() line below
+            if (ready > 0 && FD_ISSET(data->socket_fd, &read_fds)) {
+                // Store ACK from server in same `send_frame` struct
+                if (recv(data->socket_fd, (struct frame *) &send_frame, MESSAGE_SIZE, 0) < 0) {
+                    perror("ACK failed");
+                }
+            }
+
+        // Retransmission loop
+        //   While returned ACK number does not match current sequence number
+        //   or sender_ID on ACK does not match thread ID, retransmit
+        //   (not incrementing tx_cnt)
+        while (send_frame.ack != next_sn || send_frame.sender_id != tid) {
+            // Retransmit
+            send_frame.sender_id = tid;
+            send_frame.seq = next_sn;
+
+            if (send(data->socket_fd, (struct frame *) &send_frame, MESSAGE_SIZE, 0) < 0) {
+                perror("Write failed");
                 continue;
             }
-            int received_seq;
-            memcpy(&received_seq, recv_buf, sizeof(int));
 
-            if (received_seq == seq_num) {
-                data->rx_cnt++;
-                gettimeofday(&end, NULL);
-                long long rtt = (end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec);
-                data->total_rtt += rtt;
-                data->total_messages++;
-                seq_num++;
-            }
-            else {
-                i--;
+            // Receive ACK
+            int ready = select(data->socket_fd + 1, &read_fds, NULL, NULL, &timeout);
+            if (ready > 0 && FD_ISSET(data->socket_fd, &read_fds)) {
+                if (recv(data->socket_fd, (struct frame *) &send_frame, MESSAGE_SIZE, 0) < 0) {
+                    perror("ACK failed");
+                }
             }
         }
-        else {
-            // timeout or no response, retransmit
-            i--;
-        }
+        // After successful ACK:
+        data->rx_cnt++; // Increment packets received count
+        next_sn++; // Increment sequence number
+
+        gettimeofday(&end, NULL); // record end time
+
+        // compute RTT
+        long long rtt = (end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec);
+        data->total_rtt += rtt;
+        data->total_messages++;
     }
 
     data->request_rate = (float)data->total_messages / (data->total_rtt / 1000000.0);
@@ -230,7 +266,7 @@ void run_server()
     int QUEUE_SIZE = 10; // Define server listen queue size
     struct sockaddr_in client_addr;
     int client_addr_len = sizeof(client_addr);
-    char buf[MESSAGE_SIZE];
+    frame recv_frame;
 
     // Create server IP addr structure to bind socket
     struct sockaddr_in server_addr;
@@ -260,11 +296,8 @@ void run_server()
     int accept_socket_fd;
     while (1)
     {
-        // Clear buffers
-        memset(buf, '\0', sizeof(buf));
-
         // Receive incoming packet
-        int r = recvfrom(listen_socket_fd, buf, MESSAGE_SIZE, 0, (struct sockaddr *)&client_addr, &client_addr_len);
+        int r = recvfrom(listen_socket_fd, (struct frame *) &recv_frame, MESSAGE_SIZE, 0, (struct sockaddr *)&client_addr, &client_addr_len);
         if (r < 0)
         {
             perror("Error receiving packet");
@@ -272,7 +305,7 @@ void run_server()
         }
 
         // Echo packet back
-        int s = sendto(listen_socket_fd, buf, MESSAGE_SIZE, 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
+        int s = sendto(listen_socket_fd, (struct frame *) &recv_frame, MESSAGE_SIZE, 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
         if (s < 0)
         {
             perror("Error echoing packet");
