@@ -83,8 +83,6 @@ typedef struct
 void *client_thread_func(void *arg)
 {
     client_thread_data_t *data = (client_thread_data_t *)arg;
-    // char send_buf[MESSAGE_SIZE] = "ABCDEFGHIJKMLNOP";
-    // char recv_buf[MESSAGE_SIZE];
     struct timeval start, end;
     struct timeval timeout;
 
